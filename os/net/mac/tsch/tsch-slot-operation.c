@@ -747,6 +747,9 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
 
     /* Post TX: Update neighbor queue state */
     in_queue = tsch_queue_packet_sent(current_neighbor, current_packet, current_link, mac_tx_status);
+#ifdef TSCH_CALLBACK_TX_DONE
+    TSCH_CALLBACK_TX_DONE(current_link, current_neighbor, mac_tx_status);
+#endif
 
     /* The packet was dequeued, add it to dequeued_ringbuf for later processing */
     if(in_queue == 0) {
@@ -920,6 +923,9 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
              && !linkaddr_cmp(&source_address, &linkaddr_node_addr)) {
             int do_nack = 0;
             rx_count++;
+#ifdef TSCH_CALLBACK_RX_FRAME
+            TSCH_CALLBACK_RX_FRAME(current_link, &source_address);
+#endif
             estimated_drift = RTIMER_CLOCK_DIFF(expected_rx_time, rx_start_time);
             tsch_stats_on_time_synchronization(estimated_drift);
 
@@ -1063,6 +1069,9 @@ PT_THREAD(tsch_slot_operation(struct rtimer *t, void *ptr))
       /* Reset drift correction */
       drift_correction = 0;
       is_drift_correction_used = 0;
+#ifdef TSCH_CALLBACK_SLOT_START
+      TSCH_CALLBACK_SLOT_START(current_link);
+#endif
       /* Get a packet ready to be sent */
       current_packet = get_packet_and_neighbor_for_link(current_link, &current_neighbor);
       uint8_t do_skip_best_link = 0;
@@ -1081,6 +1090,9 @@ PT_THREAD(tsch_slot_operation(struct rtimer *t, void *ptr))
         update_link_backoff(current_link);
 
         current_link = backup_link;
+#ifdef TSCH_CALLBACK_SLOT_START
+        TSCH_CALLBACK_SLOT_START(current_link);
+#endif
         current_packet = get_packet_and_neighbor_for_link(current_link, &current_neighbor);
       }
       is_active_slot = current_packet != NULL || (current_link->link_options & LINK_OPTION_RX);
