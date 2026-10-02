@@ -122,6 +122,23 @@ static uint8_t mobility_score = 0; /* 0 (static) .. 100 (highly mobile) */
 
 PROCESS(sf_mobility_housekeeping_process, "sf-mobility housekeeping");
 
+/*
+ * tsch_schedule_create_minimal() wipes *all* slotframes (including this
+ * one) whenever it runs: on becoming TSCH coordinator, and on every
+ * resynchronization via a schedule-less EB (e.g. after a mobility-induced
+ * disassociation). Recreate the negotiated slotframe on demand instead of
+ * silently dropping every 6P transaction once that has happened.
+ */
+static struct tsch_slotframe *
+get_slotframe(void)
+{
+  struct tsch_slotframe *sf = tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  if(sf == NULL) {
+    sf = tsch_schedule_add_slotframe(slotframe_handle, TSCH_SCHEDULE_DEFAULT_LENGTH);
+  }
+  return sf;
+}
+
 /* ------------------------------------------------------------------------ */
 /* Cell (de)serialization helpers, mirrored from sf-simple                  */
 /* ------------------------------------------------------------------------ */
@@ -156,7 +173,7 @@ add_links_to_schedule(const linkaddr_t *peer_addr, uint8_t link_option,
 
   assert(cell_list != NULL);
 
-  slotframe = tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  slotframe = get_slotframe();
   if(slotframe == NULL) {
     return;
   }
@@ -192,7 +209,7 @@ remove_links_to_schedule(const uint8_t *cell_list, uint16_t cell_list_len)
 
   assert(cell_list != NULL);
 
-  slotframe = tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  slotframe = get_slotframe();
   if(slotframe == NULL) {
     return;
   }
@@ -299,7 +316,7 @@ add_req_input(const uint8_t *body, uint16_t body_len, const linkaddr_t *peer_add
   print_cell_list(cell_list, cell_list_len);
   PRINTF("\n");
 
-  slotframe = tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  slotframe = get_slotframe();
   if(slotframe == NULL) {
     return;
   }
@@ -372,7 +389,7 @@ delete_req_input(const uint8_t *body, uint16_t body_len,
   print_cell_list(cell_list, cell_list_len);
   PRINTF("\n");
 
-  slotframe = tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  slotframe = get_slotframe();
   if(slotframe == NULL) {
     return;
   }
@@ -502,8 +519,7 @@ static int
 sf_mobility_add_link(const linkaddr_t *peer_addr)
 {
   uint8_t index = 0;
-  struct tsch_slotframe *sf =
-    tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  struct tsch_slotframe *sf = get_slotframe();
   uint8_t req_len;
   sf_mobility_cell_t cell_list[1];
   uint16_t random_slot;
@@ -560,8 +576,7 @@ static int
 sf_mobility_remove_link(const linkaddr_t *peer_addr)
 {
   uint8_t i, index = 0;
-  struct tsch_slotframe *sf =
-    tsch_schedule_get_slotframe_by_handle(slotframe_handle);
+  struct tsch_slotframe *sf = get_slotframe();
   struct tsch_link *l;
   uint16_t req_len;
   sf_mobility_cell_t cell;

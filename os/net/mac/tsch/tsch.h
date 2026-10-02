@@ -137,6 +137,23 @@ int TSCH_RPL_CHECK_DODAG_JOINED(void);
 int TSCH_CALLBACK_DO_NACK(struct tsch_link *link, linkaddr_t *src, linkaddr_t *dst);
 #endif
 
+/* Called by TSCH (interrupt context) at the start of every slot operation, with the link
+ * about to be executed. Called a second time if TSCH falls back to the backup Rx link. */
+#ifdef TSCH_CALLBACK_SLOT_START
+void TSCH_CALLBACK_SLOT_START(struct tsch_link *link);
+#endif
+
+/* Called by TSCH (interrupt context) after every unicast/broadcast Tx attempt on a link */
+#ifdef TSCH_CALLBACK_TX_DONE
+struct tsch_neighbor;
+void TSCH_CALLBACK_TX_DONE(struct tsch_link *link, struct tsch_neighbor *n, uint8_t mac_tx_status);
+#endif
+
+/* Called by TSCH (interrupt context) after a valid frame addressed to us (or broadcast) is received on a link */
+#ifdef TSCH_CALLBACK_RX_FRAME
+void TSCH_CALLBACK_RX_FRAME(struct tsch_link *link, const linkaddr_t *src);
+#endif
+
 /* Called by TSCH when switching time source */
 #ifdef TSCH_CALLBACK_NEW_TIME_SOURCE
 struct tsch_neighbor;
