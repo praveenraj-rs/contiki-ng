@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <simconf version="2023090101">
   <simulation>
-    <title>Mobility-adaptive MSF</title>
+    <title>node-4-with-mobility</title>
     <randomseed>123456</randomseed>
     <motedelay_us>1000000</motedelay_us>
     <radiomedium>
@@ -17,7 +17,7 @@
     <motetype>
       org.contikios.cooja.contikimote.ContikiMoteType
       <description>Mobility-adaptive MSF Node</description>
-      <source>[CONFIG_DIR]/node.c</source>
+      <source>[CONFIG_DIR]/../node.c</source>
       <commands>$(MAKE) TARGET=cooja clean
 $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
       <moteinterface>org.contikios.cooja.interfaces.Position</moteinterface>
@@ -79,7 +79,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
     <motetype>
       org.contikios.cooja.contikimote.ContikiMoteType
       <description>Cooja Mote Type #2</description>
-      <source>[CONFIG_DIR]/node.c</source>
+      <source>[CONFIG_DIR]/../node.c</source>
       <commands>$(MAKE) -j$(CPUS) node.cooja TARGET=cooja</commands>
       <moteinterface>org.contikios.cooja.interfaces.Position</moteinterface>
       <moteinterface>org.contikios.cooja.interfaces.Battery</moteinterface>
@@ -101,7 +101,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
     <motetype>
       org.contikios.cooja.contikimote.ContikiMoteType
       <description>Cooja Mote Type #3</description>
-      <source>[CONFIG_DIR]/node.c</source>
+      <source>[CONFIG_DIR]/../node.c</source>
       <commands>$(MAKE) -j$(CPUS) node.cooja TARGET=cooja</commands>
       <moteinterface>org.contikios.cooja.interfaces.Position</moteinterface>
       <moteinterface>org.contikios.cooja.interfaces.Battery</moteinterface>
@@ -123,7 +123,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
     <motetype>
       org.contikios.cooja.contikimote.ContikiMoteType
       <description>Cooja Mote Type #4</description>
-      <source>[CONFIG_DIR]/node.c</source>
+      <source>[CONFIG_DIR]/../node.c</source>
       <commands>$(MAKE) -j$(CPUS) node.cooja TARGET=cooja</commands>
       <moteinterface>org.contikios.cooja.interfaces.Position</moteinterface>
       <moteinterface>org.contikios.cooja.interfaces.Battery</moteinterface>
@@ -145,7 +145,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
     <motetype>
       org.contikios.cooja.contikimote.ContikiMoteType
       <description>Cooja Mote Type #5</description>
-      <source>[CONFIG_DIR]/node.c</source>
+      <source>[CONFIG_DIR]/../node.c</source>
       <commands>$(MAKE) -j$(CPUS) node.cooja TARGET=cooja</commands>
       <moteinterface>org.contikios.cooja.interfaces.Position</moteinterface>
       <moteinterface>org.contikios.cooja.interfaces.Battery</moteinterface>
@@ -190,7 +190,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
   <plugin>
     org.contikios.cooja.plugins.ScriptRunner
     <plugin_config>
-      <scriptfile>[CONFIG_DIR]/imu-mobility-logger.js</scriptfile>
+      <scriptfile>[CONFIG_DIR]/../coojalogger.js</scriptfile>
       <active>true</active>
     </plugin_config>
     <bounds x="682" y="7" height="514" width="1017" z="2" />
@@ -206,7 +206,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
   <plugin>
     org.contikios.cooja.plugins.Mobility
     <plugin_config>
-      <positions>[CONFIG_DIR]/positions.dat</positions>
+      <positions>[CONFIG_DIR]/../positions/2-cooja.dat</positions>
     </plugin_config>
     <bounds x="0" y="0" height="200" width="500" z="5" />
   </plugin>

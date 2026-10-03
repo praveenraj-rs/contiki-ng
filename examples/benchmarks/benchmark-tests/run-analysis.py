@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 
+import argparse
+import csv
 import os
+import statistics
 import sys
 import time
 import matplotlib.pyplot as pl
+from matplotlib.backends.backend_pdf import PdfPages
 
 ###########################################
 
@@ -13,6 +17,19 @@ PLOT_ALL_NODES = True
 ###########################################
 
 LOG_FILE = 'COOJA.testlog'
+OUTPUT_PDF = 'plots.pdf'
+OUTPUT_CSV = 'metrics.csv'
+
+# (key in results, name in the CSV)
+CSV_METRICS = [
+    ("pdr", "pdr"),
+    ("par", "par"),
+    ("queue_drops", "queue_drops"),
+    ("rpl_switches", "rpl_parent_switches"),
+    ("duty_cycle", "radio_duty_cycle"),
+    ("duty_cycle_joined", "joined_radio_duty_cycle"),
+    ("charge", "charge_consumption"),
+]
 
 COORDINATOR_ID = 1
 
@@ -311,6 +328,7 @@ def analyze_results(filename, is_testbed):
                 "id": n.id,
                 "pdr": n.pdr,
                 "par": n.par,
+                "queue_drops": ll_queue_dropped,
                 "rpl_switches": n.rpl_parent_changes,
                 "duty_cycle": n.rdc,
                 "duty_cycle_joined": n.rdc_joined,
@@ -329,59 +347,120 @@ def analyze_results(filename, is_testbed):
 #######################################################
 # Plot the results of a given metric as a bar chart
 
-def plot(results, metric, ylabel):
-    pl.figure(figsize=(5, 4))
-
+def plot(results, metric, ylabel, pdf):
     data = [r[metric] for r in results]
-    x = range(len(data))
-    barlist = pl.bar(x, data, width=0.4)
+    avg = sum(data) / len(data) if data else 0.0
 
-    for b in barlist:
-        b.set_color("orange")
-        b.set_edgecolor("black")
-        b.set_linewidth(1)
+    fig, ax = pl.subplots(figsize=(max(6, 0.45 * len(data)), 4.5))
+
+    x = range(len(data))
+    bars = ax.bar(x, data, width=0.6, color="orange", edgecolor="black", linewidth=1)
+    ax.bar_label(bars, labels=["{:.1f}".format(v) for v in data],
+                 rotation=90, fontsize=7, padding=2)
+
+    ax.axhline(avg, color="red", linestyle="--", linewidth=1.2,
+               label="Average = {:.2f}".format(avg))
+    ax.legend(loc="lower right")
 
     ids = [r["id"] for r in results]
-    pl.xticks(x, [str(u) for u in ids], rotation=90)
-    pl.xlabel("Node ID")
-    pl.ylabel(ylabel)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([str(u) for u in ids], rotation=90)
+    ax.set_xlabel("Node ID")
+    ax.set_ylabel(ylabel)
+    ax.set_title(ylabel)
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
 
     if metric == "pdr":
-        miny = min(80, min(data))
-        pl.ylim([miny, 100])
+        miny = min(80, min(data)) if data else 80
+        ax.set_ylim([miny, 108])
     else:
-        pl.ylim(ymin=0)
+        ax.set_ylim(0, (max(data) if data and max(data) > 0 else 1) * 1.2)
 
-    pl.savefig("plot_{}.pdf".format(metric), format="pdf", bbox_inches='tight')
-    pl.close()
+    pdf.savefig(fig, bbox_inches='tight')
+    pl.close(fig)
+
+#######################################################
+# avg/min/max/std of each metric over the nodes, as [(name, [avg, min, max, std])]
+
+def metric_stats(results):
+    rows = []
+    for key, name in CSV_METRICS:
+        data = [r[key] for r in results]
+        if data:
+            stats = [statistics.mean(data), min(data), max(data), statistics.pstdev(data)]
+        else:
+            stats = [0.0, 0.0, 0.0, 0.0]
+        rows.append((name, stats))
+    return rows
+
+#######################################################
+# First page of the PDF: the same table as in the metrics CSV
+
+def plot_summary_table(results, title, pdf):
+    rows = metric_stats(results)
+    fig, ax = pl.subplots(figsize=(8, 0.45 * len(rows) + 1.5))
+    ax.axis("off")
+    table = ax.table(cellText=[[name] + ["{:.2f}".format(v) for v in stats] for name, stats in rows],
+                     colLabels=["Metric", "Avg", "Min", "Max", "Std"],
+                     colWidths=[0.36, 0.16, 0.16, 0.16, 0.16],
+                     loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 1.5)
+    ax.set_title(title, fontsize=10)
+    pdf.savefig(fig, bbox_inches='tight')
+    pl.close(fig)
+
+#######################################################
+# Write avg/min/max/std of each metric over the nodes, one row per metric
+
+def write_metrics_csv(results, filename):
+    with open(filename, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["metric", "avg", "min", "max", "std"])
+        for name, stats in metric_stats(results):
+            w.writerow([name] + ["{:.4f}".format(v) for v in stats])
 
 #######################################################
 # Run the application
 
 def main():
-    input_file = LOG_FILE
-    if len(sys.argv) > 1:
-        # change from the default
-        input_file = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Analyze a Cooja test log")
+    parser.add_argument("log", nargs="?", default=LOG_FILE, help="log file to analyze")
+    parser.add_argument("--pdf", default=OUTPUT_PDF, help="output PDF with the plots")
+    parser.add_argument("--csv", default=OUTPUT_CSV, help="output CSV with the metrics")
+    args = parser.parse_args()
+
+    input_file = args.log
 
     if not os.access(input_file, os.R_OK):
         print('The input file "{}" does not exist'.format(input_file))
         exit(-1)
 
     with open(input_file, "r") as f:
-        is_testbed = "COOJA logger" not in f.read()
+        is_testbed = "Starting COOJA logger" not in f.read()
 
     results, ll_par, ll_queue_dropped, e2e_pdr = analyze_results(input_file, is_testbed)
 
     print("Link-layer PAR={:.2f} ({} packets queue dropped) End-to-end PDR={:.2f}".format(
         ll_par, ll_queue_dropped, e2e_pdr))
 
-    plot(results, "pdr", "Packet Delivery Ratio, %")
-    plot(results, "par", "Packet Acknowledgement Ratio, %")
-    plot(results, "rpl_switches", "RPL parent switches")
-    plot(results, "duty_cycle", "Radio Duty Cycle, %")
-    plot(results, "duty_cycle_joined", "Joined Radio Duty Cycle, %")
-    plot(results, "charge", "Charge consumption, mC")
+    with PdfPages(args.pdf) as pdf:
+        plot_summary_table(results,
+            "Summary over {} nodes\nLink-layer PAR={:.2f}%  End-to-end PDR={:.2f}%  Packets queue dropped={}".format(
+                len(results), ll_par, e2e_pdr, ll_queue_dropped), pdf)
+        plot(results, "pdr", "Packet Delivery Ratio, %", pdf)
+        plot(results, "par", "Packet Acknowledgement Ratio, %", pdf)
+        plot(results, "queue_drops", "Packets dropped from queue", pdf)
+        plot(results, "rpl_switches", "RPL parent switches", pdf)
+        plot(results, "duty_cycle", "Radio Duty Cycle, %", pdf)
+        plot(results, "duty_cycle_joined", "Joined Radio Duty Cycle, %", pdf)
+        plot(results, "charge", "Charge consumption, mC", pdf)
+
+    print("Plots written to {}".format(args.pdf))
+
+    write_metrics_csv(results, args.csv)
+    print("Metrics written to {}".format(args.csv))
 
 #######################################################
 

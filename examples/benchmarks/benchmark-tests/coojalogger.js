@@ -95,7 +95,7 @@ timeout_function = function () {
     log.testOK();
 }
 
-log.log("Starting IMU-based mobility injector + COOJA logger\n");
+log.log("Starting COOJA logger\n");
 
 /* Kick off the periodic ground-truth sampling loop. */
 GENERATE_MSG(SAMPLE_PERIOD_MS, "sf-mobility-imu-poll");
