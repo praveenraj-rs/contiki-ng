@@ -10,7 +10,7 @@
 Simulations are the cooja-sims/*.csc files, schedulers are the folders in schedulers/
 (each with scheduler.mk and scheduler-conf.h). Results go to logs/<sim>/:
   testlogs/<scheduler>.testlog, plots/<scheduler>.pdf, metrics/<scheduler>.csv,
-  result.csv (one row per scheduler, built from metrics/).
+  result.csv (one row per scheduler, built from metrics/), result.pdf (same data as charts).
 """
 
 import argparse
@@ -26,6 +26,17 @@ SCHEDULERS_DIR = os.path.join(SELF_PATH, "schedulers")
 LOGS_DIR = os.path.join(SELF_PATH, "logs")
 
 STATS = ("avg", "min", "max", "std")
+
+# Titles of the metrics in result.pdf, keyed by the metric names of metrics/*.csv
+METRIC_TITLES = {
+    "pdr": "Packet Delivery Ratio, %",
+    "par": "Packet Acknowledgement Ratio, %",
+    "queue_drops": "Packets dropped from queue, per node",
+    "rpl_parent_switches": "RPL parent switches, per node",
+    "radio_duty_cycle": "Radio Duty Cycle, %",
+    "joined_radio_duty_cycle": "Joined Radio Duty Cycle, %",
+    "charge_consumption": "Charge consumption, mC",
+}
 
 #######################################################
 
@@ -94,25 +105,95 @@ def analyze(paths):
 
 #######################################################
 
-# One row per scheduler from every metrics/<scheduler>.csv of the simulation
-def update_result_csv(sim_dir):
-    columns = []
-    rows = []
+# {scheduler: {metric: {stat: value as text}}} from metrics/<scheduler>.csv, and the metric names
+def load_metrics(sim_dir):
+    data = {}
+    metrics = []
     for path in sorted(glob.glob(os.path.join(sim_dir, "metrics", "*.csv"))):
-        row = {"scheduler": os.path.splitext(os.path.basename(path))[0]}
+        scheduler = os.path.splitext(os.path.basename(path))[0]
+        data[scheduler] = {}
         with open(path, "r", newline="") as f:
             for m in csv.DictReader(f):
-                for stat in STATS:
-                    col = "{}_{}".format(m["metric"], stat)
-                    row[col] = m[stat]
-                    if col not in columns:
-                        columns.append(col)
-        rows.append(row)
+                data[scheduler][m["metric"]] = {stat: m[stat] for stat in STATS}
+                if m["metric"] not in metrics:
+                    metrics.append(m["metric"])
+    return data, metrics
 
+# One row per scheduler
+def write_result_csv(sim_dir, data, metrics):
+    columns = ["{}_{}".format(m, stat) for m in metrics for stat in STATS]
     with open(os.path.join(sim_dir, "result.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["scheduler"] + columns, restval="")
-        w.writeheader()
-        w.writerows(rows)
+        w = csv.writer(f)
+        w.writerow(["scheduler"] + columns)
+        for scheduler, values in data.items():
+            w.writerow([scheduler] + [values.get(m, {}).get(stat, "") for m in metrics for stat in STATS])
+
+# Page 1: table of the averages, then one chart per metric (bar = avg, whisker = std, triangles = min/max)
+def write_result_pdf(sim_dir, data, metrics):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as pl
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    schedulers = list(data)
+    nan = float("nan")
+
+    def value(scheduler, metric, stat):
+        text = data[scheduler].get(metric, {}).get(stat, "")
+        return float(text) if text != "" else nan
+
+    sim = os.path.basename(os.path.normpath(sim_dir))
+    with PdfPages(os.path.join(sim_dir, "result.pdf")) as pdf:
+        fig, ax = pl.subplots(figsize=(max(8, 1.3 * len(metrics) + 2), 0.5 * len(schedulers) + 2))
+        ax.axis("off")
+        table = ax.table(cellText=[[s] + ["{:.2f}".format(value(s, m, "avg")) for m in metrics] for s in schedulers],
+                         colLabels=["Scheduler"] + [m.replace("_", "\n") for m in metrics],
+                         loc="center", cellLoc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 2)
+        for j in range(len(metrics) + 1):
+            table[0, j].set_height(2 * table[0, j].get_height())
+        ax.set_title("{}: average over the nodes, per scheduler".format(sim), fontsize=10)
+        pdf.savefig(fig, bbox_inches="tight")
+        pl.close(fig)
+
+        for metric in metrics:
+            avgs = [value(s, metric, "avg") for s in schedulers]
+            mins = [value(s, metric, "min") for s in schedulers]
+            maxs = [value(s, metric, "max") for s in schedulers]
+            stds = [value(s, metric, "std") for s in schedulers]
+            x = range(len(schedulers))
+
+            fig, ax = pl.subplots(figsize=(max(5, 1.2 * len(schedulers) + 2), 4.5))
+            ax.bar(x, avgs, width=0.5, color="orange", edgecolor="black", label="average")
+            ax.errorbar(x, avgs, yerr=stds, fmt="none", ecolor="black", capsize=4, label="std")
+            ax.scatter(x, mins, marker="v", color="blue", zorder=3, label="min (node)")
+            ax.scatter(x, maxs, marker="^", color="red", zorder=3, label="max (node)")
+            tops = [max(maxs[i], avgs[i] + stds[i]) for i in x]
+            for i in x:
+                if avgs[i] == avgs[i]:
+                    ax.text(i, tops[i], "{:.2f}".format(avgs[i]), ha="center", va="bottom", fontsize=8)
+
+            top = max([v for v in tops if v == v] or [0])
+            bottom = min([v for v in mins if v == v] + [80]) if metric == "pdr" else 0
+            if top <= bottom:
+                top = bottom + 1
+            ax.set_ylim(bottom, top + 0.12 * (top - bottom))
+            ax.set_xticks(list(x))
+            ax.set_xticklabels(schedulers, rotation=30, ha="right")
+            ax.set_ylabel(METRIC_TITLES.get(metric, metric))
+            ax.set_title("{}: {}".format(sim, METRIC_TITLES.get(metric, metric)))
+            ax.grid(axis="y", linestyle=":", alpha=0.5)
+            ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=4, fontsize=8)
+            pdf.savefig(fig, bbox_inches="tight")
+            pl.close(fig)
+
+def update_results(sim_dir):
+    data, metrics = load_metrics(sim_dir)
+    write_result_csv(sim_dir, data, metrics)
+    if data:
+        write_result_pdf(sim_dir, data, metrics)
 
 #######################################################
 
@@ -154,8 +235,8 @@ def main():
                 failures.append((sim, scheduler, error))
 
         if not args.simulate_only:
-            update_result_csv(os.path.join(args.logs_dir, sim))
-            print("\nComparison written to {}".format(os.path.join(args.logs_dir, sim, "result.csv")))
+            update_results(os.path.join(args.logs_dir, sim))
+            print("\nComparison written to {} and result.pdf".format(os.path.join(args.logs_dir, sim, "result.csv")))
 
     print("\n===== summary =====")
     print("{} run(s), {} failed".format(len(sims) * len(schedulers), len(failures)))

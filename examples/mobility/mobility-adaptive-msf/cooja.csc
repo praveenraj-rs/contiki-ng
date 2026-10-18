@@ -190,7 +190,7 @@ $(MAKE) -j$(CPUS) TARGET=cooja node.cooja</commands>
   <plugin>
     org.contikios.cooja.plugins.ScriptRunner
     <plugin_config>
-      <scriptfile>[CONFIG_DIR]/imu-mobility-logger.js</scriptfile>
+      <scriptfile>[CONFIG_DIR]/coojalogger.js</scriptfile>
       <active>true</active>
     </plugin_config>
     <bounds x="682" y="7" height="514" width="1017" z="2" />

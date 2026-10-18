@@ -1,4 +1,4 @@
-// IMU-based mobility injector for sf-mobility, + COOJA.testlog generator.
+// IMU-based mobility injector for MA-MSF, + COOJA.testlog generator.
 //
 // Real position/velocity ground truth only exists on the Cooja/Java side of
 // the simulation (exactly as a real IMU chip's reading is only known to the
@@ -9,13 +9,13 @@
 //      plugin from a BonnMotion .dat trace, or by any other position script).
 //   2. Computes each mote's speed since the last sample.
 //   3. Pokes that ground truth directly into the two globals declared in
-//      sf-mobility.c (cooja_imu_is_moving, cooja_imu_speed_mm_s) using
+//      ma-msf.c (cooja_imu_is_moving, cooja_imu_speed_mm_s) using
 //      Cooja's VarMemory, i.e. writing the mote's simulated RAM by C
 //      variable name - the same mechanism a real IMU driver would use to
 //      make hardware register values visible to application code.
 //
-// sf-mobility.c only trusts these two globals when built for the cooja
-// target (SF_MOBILITY_CONF_WITH_COOJA_IMU); on real hardware the same code
+// ma-msf.c only trusts these two globals when built for the cooja
+// target (MA_MSF_CONF_WITH_COOJA_IMU); on real hardware the same code
 // path would instead be fed by an actual accelerometer/gyroscope driver.
 //
 // It also mirrors examples/benchmarks/result-visualization/coojalogger.js:
@@ -83,7 +83,7 @@ function sampleAndInjectMobility() {
         mem.setInt8ValueOf("cooja_imu_is_moving", moving);
         mem.setInt16ValueOf("cooja_imu_speed_mm_s", speedInt);
       } catch (e) {
-        // Firmware without sf-mobility (e.g. a plain root image), or symbol
+        // Firmware without MA-MSF (e.g. a plain root image), or symbol
         // stripped: nothing to inject for this mote, skip silently.
       }
     }
@@ -95,10 +95,10 @@ timeout_function = function () {
     log.testOK();
 }
 
-log.log("Starting IMU-based mobility injector + COOJA logger\n");
+log.log("Starting COOJA logger\n");
 
 /* Kick off the periodic ground-truth sampling loop. */
-GENERATE_MSG(SAMPLE_PERIOD_MS, "sf-mobility-imu-poll");
+GENERATE_MSG(SAMPLE_PERIOD_MS, "ma-msf-imu-poll");
 
 while (true) {
     // Any uncaught error here (Java reflection included) would otherwise
@@ -106,9 +106,9 @@ while (true) {
     // truncating COOJA.testlog after just a couple of lines - so nothing
     // inside this loop is allowed to escape uncaught.
     try {
-        if (msg == "sf-mobility-imu-poll") {
+        if (msg == "ma-msf-imu-poll") {
             sampleAndInjectMobility();
-            GENERATE_MSG(SAMPLE_PERIOD_MS, "sf-mobility-imu-poll");
+            GENERATE_MSG(SAMPLE_PERIOD_MS, "ma-msf-imu-poll");
         } else if (msg) {
             log.log(time + " " + id + " " + msg + "\n");
         }
@@ -117,4 +117,3 @@ while (true) {
     }
     YIELD();
 }
-

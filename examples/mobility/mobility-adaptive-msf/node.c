@@ -1,26 +1,17 @@
 /*
- * Mobility-adaptive MSF-like TSCH scheduling demo for Cooja.
- *
- * Sets up two slotframes:
- *  - handle 0: minimal/autonomous slotframe used for EB and shared
- *    broadcast/keep-alive traffic (like the 6TiSCH minimal schedule).
- *  - handle 1: negotiated unicast slotframe, entirely managed at runtime
- *    by sf-mobility.c through 6P ADD/DELETE with the RPL preferred parent.
- *
- * The application just generates periodic UDP traffic towards the DAG
- * root; all scheduling decisions (including reacting to mobility/parent
- * switches) are handled autonomously by sf-mobility.
+ * Mobility-adaptive 6TiSCH demo. MA-MSF owns TSCH schedule setup and
+ * negotiation; this application generates periodic UDP traffic to the root.
  */
 
 #include "contiki.h"
 #include "net/ipv6/simple-udp.h"
-#include "net/mac/tsch/tsch.h"
 #include "net/routing/routing.h"
 #include "lib/random.h"
 #include "sys/node-id.h"
-#include "services/simple-energest/simple-energest.h"
 
-#include "sf-mobility.h"
+#ifdef BENCH_SCHEDULER_INCLUDE
+#include BENCH_SCHEDULER_INCLUDE
+#endif
 
 #include <inttypes.h>
 #include "sys/log.h"
@@ -31,33 +22,10 @@
 
 #define UDP_PORT          8765
 
-/* Autonomous/minimal slotframe: EB + shared broadcast at slot 0. */
-#define MINIMAL_SLOTFRAME_HANDLE 0
-#define MINIMAL_SLOTFRAME_SIZE   TSCH_SCHEDULE_CONF_DEFAULT_LENGTH
-
 PROCESS(node_process, "Mobility-adaptive MSF node");
 AUTOSTART_PROCESSES(&node_process);
 
 static struct simple_udp_connection udp_conn;
-
-static void
-setup_minimal_schedule(void)
-{
-  struct tsch_slotframe *sf_min =
-    tsch_schedule_add_slotframe(MINIMAL_SLOTFRAME_HANDLE,
-                                MINIMAL_SLOTFRAME_SIZE);
-
-  /* Shared cell at (0, 0) for EB / broadcast / new-neighbor discovery,
-   * as in the 6TiSCH minimal schedule. */
-  tsch_schedule_add_link(sf_min,
-                         LINK_OPTION_RX | LINK_OPTION_TX | LINK_OPTION_SHARED,
-                         LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
-                         0, 0, 1);
-
-  /* Negotiated slotframe: starts empty, sf-mobility populates it via 6P. */
-  tsch_schedule_add_slotframe(SF_MOBILITY_SLOTFRAME_HANDLE,
-                              MINIMAL_SLOTFRAME_SIZE);
-}
 
 static void
 rx_packet(struct simple_udp_connection *c,
@@ -88,10 +56,10 @@ PROCESS_THREAD(node_process, ev, data)
 
   PROCESS_BEGIN();
 
-  setup_minimal_schedule();
-  sixtop_add_sf(&sf_mobility_driver);
-  NETSTACK_MAC.on();
-  simple_energest_init();
+  LOG_INFO("scheduler: %s\n", BENCH_SCHEDULER_NAME);
+#ifdef BENCH_SCHEDULER_INIT
+  BENCH_SCHEDULER_INIT();
+#endif
 
   simple_udp_register(&udp_conn, UDP_PORT, NULL, UDP_PORT, rx_packet);
 
