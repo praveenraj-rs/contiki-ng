@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-import sys
+import argparse
 import re
 from collections import defaultdict
 
-def convert_bonnmotion_to_dat(ns_file, output_dat, num_nodes=5):
+def convert_bonnmotion_to_dat(ns_file, output_dat, num_nodes=5, start_node=0):
     """
     Convert BonnMotion NS-2 format to Cooja .dat format
+
+    start_node is the zero-based Cooja mote index assigned to BonnMotion
+    node 0. Cooja motes with lower indices are not included in the trace and
+    therefore remain at their configured static positions.
     """
+
+    if start_node < 0:
+        raise ValueError("start_node must be zero or greater")
     
     nodes = defaultdict(lambda: {'init_x': 0.0, 'init_y': 0.0, 'movements': []})
     
@@ -54,7 +61,7 @@ def convert_bonnmotion_to_dat(ns_file, output_dat, num_nodes=5):
         if node_id in nodes:
             timeline.append({
                 'time': 0.0,
-                'node': node_id,
+                'node': node_id + start_node,
                 'x': nodes[node_id]['init_x'],
                 'y': nodes[node_id]['init_y']
             })
@@ -89,7 +96,7 @@ def convert_bonnmotion_to_dat(ns_file, output_dat, num_nodes=5):
                         
                         timeline.append({
                             'time': time_s,
-                            'node': node_id,
+                            'node': node_id + start_node,
                             'x': x,
                             'y': y
                         })
@@ -125,13 +132,25 @@ def convert_bonnmotion_to_dat(ns_file, output_dat, num_nodes=5):
     print(f"Unique timestamps: {len(times)}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python3 bonnmotion_to_dat.py <input_ns2_file> <output_dat_file> [num_nodes]")
-        print("Example: python3 bonnmotion_to_dat.py scenario.ns_movements positions.dat 5")
-        sys.exit(1)
-    
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-    num_nodes = int(sys.argv[3]) if len(sys.argv) > 3 else 5
-    
-    convert_bonnmotion_to_dat(input_file, output_file, num_nodes)
+    parser = argparse.ArgumentParser(
+        description="Convert BonnMotion NS-2 movement files to Cooja .dat format"
+    )
+    parser.add_argument("input_ns2_file")
+    parser.add_argument("output_dat_file")
+    parser.add_argument(
+        "num_nodes", nargs="?", type=int, default=5,
+        help="number of nodes in the BonnMotion file (default: 5)"
+    )
+    parser.add_argument(
+        "start_node", nargs="?", type=int, default=0,
+        help="zero-based Cooja mote index for BonnMotion node 0; lower indices "
+             "remain static (default: 0)"
+    )
+    args = parser.parse_args()
+
+    if args.start_node < 0:
+        parser.error("start_node must be zero or greater")
+
+    convert_bonnmotion_to_dat(
+        args.input_ns2_file, args.output_dat_file, args.num_nodes, args.start_node
+    )
