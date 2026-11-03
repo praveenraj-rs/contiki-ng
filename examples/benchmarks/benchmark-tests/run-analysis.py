@@ -396,7 +396,7 @@ def metric_stats(results):
 #######################################################
 # First page of the PDF: the same table as in the metrics CSV
 
-def plot_summary_table(results, title, pdf):
+def plot_summary_table(results, title, pdf, heading=None):
     rows = metric_stats(results)
     fig, ax = pl.subplots(figsize=(8, 0.45 * len(rows) + 1.5))
     ax.axis("off")
@@ -407,7 +407,7 @@ def plot_summary_table(results, title, pdf):
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1, 1.5)
-    ax.set_title(title, fontsize=10)
+    ax.set_title("{}\n{}".format(heading, title) if heading else title, fontsize=10)
     pdf.savefig(fig, bbox_inches='tight')
     pl.close(fig)
 
@@ -429,6 +429,7 @@ def main():
     parser.add_argument("log", nargs="?", default=LOG_FILE, help="log file to analyze")
     parser.add_argument("--pdf", default=OUTPUT_PDF, help="output PDF with the plots")
     parser.add_argument("--csv", default=OUTPUT_CSV, help="output CSV with the metrics")
+    parser.add_argument("--heading", default=None, help="heading of the first (summary) page, e.g. '1-cooja / ma-msf'")
     args = parser.parse_args()
 
     input_file = args.log
@@ -448,7 +449,7 @@ def main():
     with PdfPages(args.pdf) as pdf:
         plot_summary_table(results,
             "Summary over {} nodes\nLink-layer PAR={:.2f}%  End-to-end PDR={:.2f}%  Packets queue dropped={}".format(
-                len(results), ll_par, e2e_pdr, ll_queue_dropped), pdf)
+                len(results), ll_par, e2e_pdr, ll_queue_dropped), pdf, args.heading)
         plot(results, "pdr", "Packet Delivery Ratio, %", pdf)
         plot(results, "par", "Packet Acknowledgement Ratio, %", pdf)
         plot(results, "queue_drops", "Packets dropped from queue", pdf)

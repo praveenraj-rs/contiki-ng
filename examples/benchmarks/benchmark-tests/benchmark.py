@@ -94,11 +94,12 @@ def simulate(sim, scheduler, paths):
             return "log does not show scheduler '{}' (wrong firmware was built?)".format(scheduler)
     return None
 
-def analyze(paths):
+def analyze(paths, sim, scheduler):
     if not os.path.exists(paths.testlog):
         return "missing {}".format(paths.testlog)
     cmd = [sys.executable, os.path.join(SELF_PATH, "run-analysis.py"), paths.testlog,
-           "--pdf", paths.pdf, "--csv", paths.csv]
+           "--pdf", paths.pdf, "--csv", paths.csv,
+           "--heading", "{} / {}".format(sim, scheduler)]
     if subprocess.call(cmd, cwd=SELF_PATH) != 0:
         return "analysis failed"
     return None
@@ -229,7 +230,7 @@ def main():
             if not args.analysis_only:
                 error = simulate(sim, scheduler, paths)
             if error is None and not args.simulate_only:
-                error = analyze(paths)
+                error = analyze(paths, sim, scheduler)
             if error is not None:
                 print("FAILED: {}".format(error), flush=True)
                 failures.append((sim, scheduler, error))
