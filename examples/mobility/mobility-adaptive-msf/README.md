@@ -101,6 +101,17 @@ state is active MA-MSF proactively keeps the target number of Tx cells and
 adds cells when the parent queue reaches `QUEUE_HIGH`; this is why it can act
 before the normal traffic window would request an ADD.
 
+### RPL leaf mode while moving
+
+With RPL Classic, a node that moves becomes an RPL leaf (`RPL_LEAF_WHEN_MOBILE`,
+default on; set `MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE` to 0 in [scheduler/ma-msf/scheduler-conf.h](scheduler/ma-msf/scheduler-conf.h) or build with `DEFINES=MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE=0` to disable).
+It stops sending DIOs and, when it becomes a leaf, sends one DIO with an
+infinite rank so that its children pick another parent. It still sends EBs,
+so other nodes can join through it. Leaf mode follows the node's own motion
+(on at `SCORE_HIGH`, off at `SCORE_LOW`); the parent switch boost does not
+trigger it, and the root never becomes a leaf. The RPL side is
+`rpl_set_leaf_mode()` in `os/net/routing/rpl-classic`.
+
 ### Other scheduler defaults
 
 These MA-MSF header values are fixed implementation limits or static MSF

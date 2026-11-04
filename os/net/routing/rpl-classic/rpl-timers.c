@@ -215,7 +215,9 @@ rpl_reset_periodic_timer(void)
 void
 rpl_reset_dio_timer(rpl_instance_t *instance)
 {
-#if !RPL_LEAF_ONLY
+  if(rpl_is_leaf()) {
+    return;
+  }
   /* Do not reset if we are already on the minimum interval,
      unless forced to do so. */
   if(instance->dio_intcurrent > instance->dio_intmin) {
@@ -226,7 +228,6 @@ rpl_reset_dio_timer(rpl_instance_t *instance)
 #if RPL_CONF_STATS
   rpl_stats.resets++;
 #endif /* RPL_CONF_STATS */
-#endif /* RPL_LEAF_ONLY */
 }
 /*---------------------------------------------------------------------------*/
 static void handle_dao_timer(void *ptr);

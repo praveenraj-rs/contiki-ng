@@ -233,6 +233,17 @@ struct tsch_neighbor;
 #define MA_MSF_CONF_SIGNAL_MOBILITY 1
 #endif
 
+/*
+ * A moving node becomes an RPL leaf (RPL Classic only): it stops sending DIOs
+ * and tells its children to find another parent, so that neighbors do not
+ * route through a node that is about to leave. It still sends EBs, so others
+ * can join through it. It follows the node's own motion (entered at
+ * SCORE_HIGH, left at SCORE_LOW), not the parent switch boost.
+ */
+#ifndef MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE
+#define MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE ROUTING_CONF_RPL_CLASSIC
+#endif
+
 #if MA_MSF_MAX_NUM_CELLS > 255
 #error "MA_MSF_MAX_NUM_CELLS must fit the 1-byte NumCellsElapsed counter"
 #endif

@@ -21,6 +21,8 @@
  *    not from schedule collisions).
  *  - Section 11: the Metadata field of requests tells the parent whether the
  *    child is moving, so the parent reclaims the cells of a child that left.
+ *  - RPL: a moving node becomes an RPL leaf (no DIOs, children told to
+ *    leave), so the others do not route through it (MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE).
  *
  * With score 0 the behaviour is the one of plain MSF. Besides the mobility
  * features there are two fixes over msf.c: a failed CLEAR to an unreachable
@@ -52,6 +54,9 @@
 #include <string.h>
 
 #include "ma-msf.h"
+#if MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE
+#include "net/routing/rpl-classic/rpl.h"
+#endif
 
 #include "sys/log.h"
 #define LOG_MODULE "MA-MSF"
@@ -233,6 +238,8 @@ uint8_t cooja_imu_is_moving;
 uint16_t cooja_imu_speed_mm_s;
 static uint8_t mob_score;                   /* 0 static .. 100 fast */
 static uint8_t mobile;                      /* score crossed HIGH, not yet back under LOW */
+static uint8_t motion_score;                /* mob_score from the own motion only, no switch boost */
+static uint8_t rpl_leaf;                    /* RPL leaf mode requested by MA-MSF */
 #if !MA_MSF_CONF_WITH_COOJA_IMU
 static int16_t prev_rssi = LINK_STATS_RSSI_UNKNOWN;
 static uint16_t prev_etx;
@@ -442,23 +449,50 @@ mobility_sample(void)
  * Fast attack, slow decay: a moving node is treated as mobile at once, and a
  * node that stopped keeps the mobile settings for a while.
  */
+static uint8_t
+mobility_filter(uint8_t score, uint16_t sample)
+{
+  if(sample >= score) {
+    score = (score + 3 * sample) / 4;
+    if(score < sample && sample - score <= 1) {
+      score = sample;
+    }
+  } else {
+    uint8_t step = (score - sample) / 8;
+    score -= step > 0 ? step : 1;
+  }
+  return score > 100 ? 100 : score;
+}
+/*---------------------------------------------------------------------------*/
 static void
 mobility_update(void)
 {
   uint16_t sample = mobility_sample();
 
-  if(sample >= mob_score) {
-    mob_score = (mob_score + 3 * sample) / 4;
-    if(mob_score < sample && sample - mob_score <= 1) {
-      mob_score = sample;
-    }
-  } else {
-    uint8_t step = (mob_score - sample) / 8;
-    mob_score -= step > 0 ? step : 1;
+  mob_score = mobility_filter(mob_score, sample);
+  motion_score = mobility_filter(motion_score, sample);
+}
+/*---------------------------------------------------------------------------*/
+/* A moving node stays out of the RPL routing as a leaf. */
+static void
+rpl_leaf_update(void)
+{
+#if MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE
+  uint8_t was_leaf = rpl_leaf;
+
+  if(NETSTACK_ROUTING.node_is_root()) {
+    return;
   }
-  if(mob_score > 100) {
-    mob_score = 100;
+  if(!rpl_leaf && motion_score >= MA_MSF_CONF_SCORE_HIGH) {
+    rpl_leaf = 1;
+  } else if(rpl_leaf && motion_score <= MA_MSF_CONF_SCORE_LOW) {
+    rpl_leaf = 0;
   }
+  if(rpl_leaf != was_leaf) {
+    LOG_INFO("RPL leaf mode %s: motion score %u\n", rpl_leaf ? "on" : "off", motion_score);
+    rpl_set_leaf_mode(rpl_leaf);
+  }
+#endif /* MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE */
 }
 /*---------------------------------------------------------------------------*/
 /* Tx cells to keep with the parent: 1 for a static node, more while mobile. */
@@ -2144,6 +2178,7 @@ housekeeping(void)
 
   mobility_update();
   policy_apply();
+  rpl_leaf_update();
 
   if(!tsch_is_associated) {
     if(msf_ready) {
@@ -2196,6 +2231,8 @@ sf_init(void)
   state_reset();
   mob_score = 0;
   mobile = 0;
+  motion_score = 0;
+  rpl_leaf = 0;
   process_start(&ma_msf_process, NULL);
 }
 /*---------------------------------------------------------------------------*/

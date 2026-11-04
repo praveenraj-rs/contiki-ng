@@ -432,6 +432,14 @@ get_root_ipaddr(uip_ipaddr_t *ipaddr)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+static uint8_t leaf_mode = RPL_LEAF_ONLY ? 1 : 0;
+/*---------------------------------------------------------------------------*/
+uint8_t
+rpl_is_leaf(void)
+{
+  return leaf_mode;
+}
+/*---------------------------------------------------------------------------*/
 uint8_t
 rpl_is_in_leaf_mode(void)
 {
@@ -439,9 +447,42 @@ rpl_is_in_leaf_mode(void)
    * Confusingly, most of the RPL code uses the `rpl_mode` variable
    * only to check whether the node is in mesh or feather mode, and
    * makes decision about the leaf status based on the preprocessor
-   * flag. For consistency, do the same here.
+   * flag. For consistency, do the same here. This is what makes TSCH stop
+   * sending EBs; a node that is a leaf only at run time keeps sending them,
+   * so that others can still join the network through it.
    */
   return RPL_LEAF_ONLY ? 1 : 0;
+}
+/*---------------------------------------------------------------------------*/
+void
+rpl_set_leaf_mode(uint8_t leaf)
+{
+  rpl_instance_t *instance;
+  rpl_instance_t *end;
+
+  leaf = (leaf || RPL_LEAF_ONLY) ? 1 : 0;
+  if(leaf == leaf_mode) {
+    return;
+  }
+  LOG_INFO("leaf mode %s\n", leaf ? "on" : "off");
+  if(!leaf) {
+    leaf_mode = 0;
+  }
+
+  for(instance = &instance_table[0], end = instance + RPL_MAX_INSTANCES;
+      instance < end; ++instance) {
+    if(!instance->used || instance->current_dag == NULL ||
+       !instance->current_dag->joined) {
+      continue;
+    }
+    if(leaf) {
+      /* Tell the children to find another parent. */
+      dio_output_poison(instance);
+    } else {
+      rpl_reset_dio_timer(instance);
+    }
+  }
+  leaf_mode = leaf;
 }
 /*---------------------------------------------------------------------------*/
 const struct routing_driver rpl_classic_driver = {

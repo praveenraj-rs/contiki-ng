@@ -19,3 +19,9 @@
 #ifndef MA_MSF_CONF_WITH_COOJA_IMU
 #define MA_MSF_CONF_WITH_COOJA_IMU 1
 #endif
+
+/* 1 = a moving node becomes an RPL leaf (no DIOs, children told to find another parent), 0 = off.
+ * Select with: make SCHEDULER=ma-msf DEFINES=MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE=0 */
+#ifndef MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE
+#define MA_MSF_CONF_RPL_LEAF_WHEN_MOBILE 1
+#endif

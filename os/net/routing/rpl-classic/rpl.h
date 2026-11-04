@@ -355,5 +355,24 @@ int rpl_has_downward_route(void);
  */
 uint8_t rpl_is_in_leaf_mode(void);
 
+/**
+ * Tells whether the node is a leaf, either because of RPL_CONF_LEAF_ONLY or
+ * after rpl_set_leaf_mode(). A leaf sends no multicast DIOs and its unicast
+ * DIOs have an infinite rank.
+ *
+ * \retval 1 if the node is a leaf, 0 if not.
+ */
+uint8_t rpl_is_leaf(void);
+
+/**
+ * Switches the leaf status on or off at run time. It is always on if
+ * RPL_CONF_LEAF_ONLY is set. When a node becomes a leaf it sends one DIO
+ * with an infinite rank so that its children look for another parent;
+ * when it stops being one it restarts its DIO timer.
+ *
+ * \param leaf 1 to become a leaf, 0 to take part in the routing again.
+ */
+void rpl_set_leaf_mode(uint8_t leaf);
+
 /*---------------------------------------------------------------------------*/
 #endif /* RPL_H */

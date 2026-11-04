@@ -224,12 +224,12 @@ dis_input(void)
       instance < end; ++instance) {
     if(instance->used == 1) {
       if(uip_is_addr_mcast(&UIP_IP_BUF->destipaddr)) {
-#if RPL_LEAF_ONLY
-        LOG_INFO("LEAF ONLY Multicast DIS will NOT reset DIO timer\n");
-#else /* !RPL_LEAF_ONLY */
-        LOG_DBG("Multicast DIS => reset DIO timer\n");
-        rpl_reset_dio_timer(instance);
-#endif /* !RPL_LEAF_ONLY */
+        if(rpl_is_leaf()) {
+          LOG_INFO("LEAF ONLY Multicast DIS will NOT reset DIO timer\n");
+        } else {
+          LOG_DBG("Multicast DIS => reset DIO timer\n");
+          rpl_reset_dio_timer(instance);
+        }
       } else {
         /* Check if this neighbor should be added according to the policy. */
         if(rpl_icmp6_update_nbr_table(&UIP_IP_BUF->srcipaddr,
@@ -501,25 +501,23 @@ discard:
   uipbuf_clear();
 }
 /*---------------------------------------------------------------------------*/
-void
-dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
+/* With `poison`, a multicast DIO with an infinite rank is sent even in leaf mode. */
+static void
+dio_output_internal(rpl_instance_t *instance, uip_ipaddr_t *uc_addr, int poison)
 {
   unsigned char *buffer;
   int pos;
   int is_root;
   rpl_dag_t *dag = instance->current_dag;
-#if !RPL_LEAF_ONLY
   uip_ipaddr_t addr;
-#endif /* !RPL_LEAF_ONLY */
+  int leaf = poison || rpl_is_leaf();
 
-#if RPL_LEAF_ONLY
   /* In leaf mode, we only send DIO messages as unicasts in response to
      unicast DIS messages. */
-  if(uc_addr == NULL) {
+  if(leaf && !poison && uc_addr == NULL) {
     LOG_DBG("LEAF ONLY have multicast addr: skip dio_output\n");
     return;
   }
-#endif /* RPL_LEAF_ONLY */
 
   /* DAG Information Object */
   pos = 0;
@@ -529,12 +527,12 @@ dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
   buffer[pos++] = dag->version;
   is_root = (dag->rank == ROOT_RANK(instance));
 
-#if RPL_LEAF_ONLY
-  LOG_DBG("LEAF ONLY DIO rank set to RPL_INFINITE_RANK\n");
-  set16(buffer, pos, RPL_INFINITE_RANK);
-#else /* RPL_LEAF_ONLY */
-  set16(buffer, pos, dag->rank);
-#endif /* RPL_LEAF_ONLY */
+  if(leaf) {
+    LOG_DBG("LEAF ONLY DIO rank set to RPL_INFINITE_RANK\n");
+    set16(buffer, pos, RPL_INFINITE_RANK);
+  } else {
+    set16(buffer, pos, dag->rank);
+  }
   pos += 2;
 
   buffer[pos] = 0;
@@ -564,8 +562,7 @@ dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
   memcpy(buffer + pos, &dag->dag_id, sizeof(dag->dag_id));
   pos += 16;
 
-#if !RPL_LEAF_ONLY
-  if(instance->mc.type != RPL_DAG_MC_NONE) {
+  if(!leaf && instance->mc.type != RPL_DAG_MC_NONE) {
     instance->of->update_metric_container(instance);
 
     buffer[pos++] = RPL_OPTION_DAG_METRIC_CONTAINER;
@@ -588,7 +585,6 @@ dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
       return;
     }
   }
-#endif /* !RPL_LEAF_ONLY */
 
   /* Always add a DAG configuration option. */
   buffer[pos++] = RPL_OPTION_DAG_CONF;
@@ -631,32 +627,36 @@ dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
             dag->prefix_info.length);
   }
 
-#if RPL_LEAF_ONLY
-  if(LOG_DBG_ENABLED) {
-    if(uc_addr == NULL) {
-      LOG_DBG("LEAF ONLY sending unicast-DIO from multicast-DIO\n");
-    }
-  }
-
-  LOG_INFO("Sending unicast-DIO with rank %u to ", (unsigned)dag->rank);
-  LOG_INFO_6ADDR(uc_addr);
-  LOG_INFO_("\n");
-  uip_icmp6_send(uc_addr, ICMP6_RPL, RPL_CODE_DIO, pos);
-#else /* RPL_LEAF_ONLY */
-  /* Unicast requests get unicast replies! */
-  if(uc_addr == NULL) {
+  if(leaf && uc_addr != NULL) {
+    LOG_INFO("Sending unicast-DIO with rank %u to ", (unsigned)dag->rank);
+    LOG_INFO_6ADDR(uc_addr);
+    LOG_INFO_("\n");
+    uip_icmp6_send(uc_addr, ICMP6_RPL, RPL_CODE_DIO, pos);
+  } else if(uc_addr == NULL) {
     LOG_INFO("Sending a multicast-DIO with rank %u\n",
-             (unsigned)instance->current_dag->rank);
+             (unsigned)(leaf ? RPL_INFINITE_RANK : instance->current_dag->rank));
     uip_create_linklocal_rplnodes_mcast(&addr);
     uip_icmp6_send(&addr, ICMP6_RPL, RPL_CODE_DIO, pos);
   } else {
+    /* Unicast requests get unicast replies! */
     LOG_INFO("Sending unicast-DIO with rank %u to ",
              (unsigned)instance->current_dag->rank);
     LOG_INFO_6ADDR(uc_addr);
     LOG_INFO_("\n");
     uip_icmp6_send(uc_addr, ICMP6_RPL, RPL_CODE_DIO, pos);
   }
-#endif /* RPL_LEAF_ONLY */
+}
+/*---------------------------------------------------------------------------*/
+void
+dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
+{
+  dio_output_internal(instance, uc_addr, 0);
+}
+/*---------------------------------------------------------------------------*/
+void
+dio_output_poison(rpl_instance_t *instance)
+{
+  dio_output_internal(instance, NULL, 1);
 }
 /*---------------------------------------------------------------------------*/
 static void
