@@ -26,7 +26,19 @@ START_NODE=3
 DURATION=3600
 AREA_X=100
 AREA_Y=100
-MODEL="ManhattanGrid"  # Options: RandomWaypoint, ManhattanGrid, GaussMarkov
+MODEL="RandomWaypoint"  # Options: RandomWaypoint, ManhattanGrid, GaussMarkov
+
+# Speed / pause settings (applied to all models)
+MIN_SPEED=0.5   # m/s
+MAX_SPEED=1.5   # m/s (about walking speed)
+MAX_PAUSE=5.0   # s   (RandomWaypoint, ManhattanGrid; GaussMarkov never pauses)
+# ManhattanGrid only: chance of pausing at each update (0 disables pauses).
+# Must be <= 0.8 (BonnMotion adds a fixed 0.2 speed-change probability).
+MG_PAUSE_PROB=0.1
+# ManhattanGrid draws speeds from a Gaussian around a mean (clipped at MIN_SPEED),
+# so use the midpoint of MIN/MAX as the mean and keep the spread small.
+MG_MEAN_SPEED=$(awk -v a="$MIN_SPEED" -v b="$MAX_SPEED" 'BEGIN { printf "%.3f", (a + b) / 2 }')
+MG_SPEED_STDDEV=$(awk -v a="$MIN_SPEED" -v b="$MAX_SPEED" 'BEGIN { printf "%.3f", (b - a) / 4 }')
 
 SCENARIO_NAME="mobility_${NUM_NODES}nodes"
 OUTPUT_SUFFIX=""
@@ -46,6 +58,16 @@ echo "  First mobile Cooja mote index: $START_NODE"
 echo "  Duration: $DURATION seconds"
 echo "  Area: ${AREA_X}x${AREA_Y} meters"
 echo "  Model: $MODEL"
+if [ "$MODEL" == "RandomWaypoint" ]; then
+    echo "  Speed: ${MIN_SPEED}-${MAX_SPEED} m/s"
+    echo "  Max pause: ${MAX_PAUSE} s"
+elif [ "$MODEL" == "ManhattanGrid" ]; then
+    echo "  Speed: mean ${MG_MEAN_SPEED} m/s (stddev ${MG_SPEED_STDDEV}, min ${MIN_SPEED})"
+    echo "  Max pause: ${MAX_PAUSE} s (pause probability ${MG_PAUSE_PROB})"
+elif [ "$MODEL" == "GaussMarkov" ]; then
+    echo "  Speed: ${MIN_SPEED}-${MAX_SPEED} m/s"
+    echo "  Pause: none (continuous movement)"
+fi
 echo ""
 
 # Step 1: Generate BonnMotion scenario
@@ -58,21 +80,29 @@ if [ "$MODEL" == "RandomWaypoint" ]; then
         -d $DURATION \
         -x $AREA_X \
         -y $AREA_Y \
-        -h 10 \
-        -l 2 \
-        -p 5.0
+        -h $MAX_SPEED \
+        -l $MIN_SPEED \
+        -p $MAX_PAUSE
 elif [ "$MODEL" == "ManhattanGrid" ]; then
     "$BM" -f "scenarios/$SCENARIO_NAME" ManhattanGrid \
         -n $NUM_NODES \
         -d $DURATION \
         -x $AREA_X \
-        -y $AREA_Y
+        -y $AREA_Y \
+        -e $MIN_SPEED \
+        -m $MG_MEAN_SPEED \
+        -s $MG_SPEED_STDDEV \
+        -o $MAX_PAUSE \
+        -p $MG_PAUSE_PROB
 elif [ "$MODEL" == "GaussMarkov" ]; then
+    # Note: for GaussMarkov, -m is MIN speed (for ManhattanGrid it is mean speed)
     "$BM" -f "scenarios/$SCENARIO_NAME" GaussMarkov \
         -n $NUM_NODES \
         -d $DURATION \
         -x $AREA_X \
-        -y $AREA_Y
+        -y $AREA_Y \
+        -h $MAX_SPEED \
+        -m $MIN_SPEED
 fi
 
 # Step 2: Convert to NS-2 format
