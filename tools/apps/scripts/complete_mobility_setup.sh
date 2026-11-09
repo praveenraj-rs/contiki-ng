@@ -27,6 +27,11 @@ DURATION=3600
 AREA_X=100
 AREA_Y=100
 MODEL="RandomWaypoint"  # Options: RandomWaypoint, ManhattanGrid, GaussMarkov
+SEED=123456     # BonnMotion random seed (fixed for reproducible traces; empty = random)
+# RandomWaypoint only: movement dimension. 3 = classic 2D RWP (straight/diagonal
+# legs to uniformly random waypoints). BonnMotion's default (4) moves along only
+# one axis per leg, which gives L-shaped, Manhattan-like paths.
+RW_DIM=3
 
 # Speed / pause settings (applied to all models)
 MIN_SPEED=0.5   # m/s
@@ -58,7 +63,9 @@ echo "  First mobile Cooja mote index: $START_NODE"
 echo "  Duration: $DURATION seconds"
 echo "  Area: ${AREA_X}x${AREA_Y} meters"
 echo "  Model: $MODEL"
+echo "  Seed: ${SEED:-random}"
 if [ "$MODEL" == "RandomWaypoint" ]; then
+    echo "  Dimension: $RW_DIM"
     echo "  Speed: ${MIN_SPEED}-${MAX_SPEED} m/s"
     echo "  Max pause: ${MAX_PAUSE} s"
 elif [ "$MODEL" == "ManhattanGrid" ]; then
@@ -74,8 +81,15 @@ echo ""
 echo "[1/4] Generating BonnMotion scenario..."
 cd "$BONNMOTION_DIR"
 
+SEED_ARGS=()
+if [ -n "$SEED" ]; then
+    SEED_ARGS=(-R "$SEED")
+fi
+
 if [ "$MODEL" == "RandomWaypoint" ]; then
     "$BM" -f "scenarios/$SCENARIO_NAME" RandomWaypoint \
+        "${SEED_ARGS[@]}" \
+        -o $RW_DIM \
         -n $NUM_NODES \
         -d $DURATION \
         -x $AREA_X \
@@ -85,6 +99,7 @@ if [ "$MODEL" == "RandomWaypoint" ]; then
         -p $MAX_PAUSE
 elif [ "$MODEL" == "ManhattanGrid" ]; then
     "$BM" -f "scenarios/$SCENARIO_NAME" ManhattanGrid \
+        "${SEED_ARGS[@]}" \
         -n $NUM_NODES \
         -d $DURATION \
         -x $AREA_X \
@@ -97,6 +112,7 @@ elif [ "$MODEL" == "ManhattanGrid" ]; then
 elif [ "$MODEL" == "GaussMarkov" ]; then
     # Note: for GaussMarkov, -m is MIN speed (for ManhattanGrid it is mean speed)
     "$BM" -f "scenarios/$SCENARIO_NAME" GaussMarkov \
+        "${SEED_ARGS[@]}" \
         -n $NUM_NODES \
         -d $DURATION \
         -x $AREA_X \

@@ -54,18 +54,24 @@ sample score from 0 to 100:
 
 `sample = min(speed_mm_s * 100 / MA_MSF_CONF_SPEED_FULL_MM_S, 100)`
 
-At the default full-score speed of 2000 mm/s, 1000 mm/s contributes a sample
-of 50 and 2000 mm/s or faster contributes 100. If the moving flag is set but
-the speed-derived sample is below 25 (for example, a small or stale reading),
-MA-MSF raises that sample to 25. The flag is not itself the mobile-state
-switch: the filtered score must reach the high threshold.
+At the default full-score speed of 1500 mm/s, 750 mm/s contributes a sample
+of 50 and 1500 mm/s or faster contributes 100, so a node moving steadily
+faster than about 825 mm/s reaches the mobile-state threshold
+(`SCORE_HIGH` = 55). If the moving flag is set but the speed-derived sample is
+below 25 (for example, a small or stale reading), MA-MSF raises that sample to
+25. The flag is not itself the mobile-state switch: the filtered score must
+reach the high threshold. Because this floor is above `SCORE_LOW` (20), a node
+leaves the mobile state only after it has stopped moving.
 
 The filtered score is updated once per MA-MSF housekeeping tick (one second).
 When the sample is rising, the new score is `(old_score + 3 * sample) / 4`;
 when it is falling, the score decays by at least 1 and otherwise by one
 eighth of the difference. This gives a fast response to movement and slower
 return to static settings. A parent change also raises the score to at least
-`MA_MSF_CONF_SWITCH_BOOST`.
+`MA_MSF_CONF_SWITCH_BOOST` (30 by default). This boost is below `SCORE_HIGH`,
+so a parent switch alone moves the interpolated policy values part of the way
+towards their mobile endpoints but does not put the node in the mobile state;
+static nodes that change parent therefore keep a single negotiated Tx cell.
 
 If IMU input is disabled, MA-MSF instead estimates a 0-100 sample from RSSI
 changes and rising ETX on the preferred-parent link. Missing or stale link
@@ -80,18 +86,18 @@ with hysteresis.
 
 | Parameter (`MA_MSF_CONF_*`) | Score 0 / static | Score 100 / fast mobility | Effect |
 |---|---:|---:|---|
-| `SPEED_FULL_MM_S` | — | 2000 mm/s | Speed that maps to score 100; larger readings are capped at 100. |
+| `SPEED_FULL_MM_S` | — | 1500 mm/s | Speed that maps to score 100; larger readings are capped at 100. |
 | `SCORE_HIGH` / `SCORE_LOW` | enter at 55 | leave at 20 | Hysteresis for the mobile state; avoids rapid toggling. |
-| `SWITCH_BOOST` | — | 60 minimum score | A preferred-parent change immediately raises the score to at least 60. |
+| `SWITCH_BOOST` | — | 30 minimum score | A preferred-parent change immediately raises the score to at least 30. Kept below `SCORE_HIGH`, so a parent switch alone does not enter the mobile state. |
 | `MAX_NUM_CELLS` / `MOBILE_MAX_NUM_CELLS` | 100-cell usage window | 30-cell usage window | `NumCellsElapsed` decision window; shorter at high mobility. |
 | `LIM_NUMCELLSUSED_HIGH` / `MOBILE_HIGH_PCT` | 75% | 40% | Usage above this window percentage requests a Tx/Rx cell. The absolute threshold is derived from the interpolated window and percentage. |
 | `LIM_NUMCELLSUSED_LOW` / `MOBILE_LOW_PCT` | 25% | 0% | Usage below this percentage can request deletion; at score 100 the threshold is zero, so low use does not trigger cell release. |
-| `EXTRA_CELLS` | — | 2 extra Tx cells | Target is one negotiated Tx cell when static and `1 + EXTRA_CELLS` (3 by default) when mobile. |
+| `EXTRA_CELLS` | — | 1 extra Tx cell | Target is one negotiated Tx cell when static and `1 + EXTRA_CELLS` (2 by default) when mobile. Each extra cell costs a 6P ADD per parent switch and an Rx cell the parent listens on every slotframe. |
 | `QUEUE_HIGH` | — | 2 queued packets | While mobile, a parent queue at or above this size triggers another Tx-cell ADD, subject to the per-parent cap. |
 | `WAIT_DURATION_MIN` / `MOBILE_WAIT_MIN` | 30 s | 3 s | Lower bound for randomized waitretry after a 6P transaction. |
 | `WAIT_DURATION_MAX` / `MOBILE_WAIT_MAX` | 60 s | 8 s | Upper bound for randomized waitretry; shorter mobile waits allow quicker retry. |
 | `6P_TIMEOUT` / `MOBILE_6P_TIMEOUT` | RFC 9033-derived timeout | 20 s | 6P transaction timeout; shortened as the score rises. |
-| `SWITCH_TIMEOUT` / `MOBILE_SWITCH_TIMEOUT` | 300 s | 30 s | Maximum time to finish moving the schedule to a new preferred parent before clearing the old parent. |
+| `SWITCH_TIMEOUT` / `MOBILE_SWITCH_TIMEOUT` | 300 s | 150 s | Maximum time to finish moving the schedule to a new preferred parent before clearing the old parent. |
 | `CELL_IDLE_TIMEOUT` / `MOBILE_CELL_IDLE_TIMEOUT` | 300 s | 60 s for a child that signalled mobility | Cleanup delay for idle negotiated cells; a child’s 6P mobility metadata selects the shorter mobile timeout. |
 | `SIGNAL_MOBILITY` | — | 1 (enabled) | Puts mobile state in bit 8 and the score in the low byte of 6P request metadata, so a parent can manage that child’s cells accordingly. |
 

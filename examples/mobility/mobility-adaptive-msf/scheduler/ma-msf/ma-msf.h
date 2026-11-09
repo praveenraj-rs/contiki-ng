@@ -163,7 +163,7 @@ struct tsch_neighbor;
 
 /* Speed that maps to score 100. */
 #ifndef MA_MSF_CONF_SPEED_FULL_MM_S
-#define MA_MSF_CONF_SPEED_FULL_MM_S 2000
+#define MA_MSF_CONF_SPEED_FULL_MM_S 1500
 #endif
 
 /* "Mobile" state with hysteresis: entered at HIGH, left at LOW. */
@@ -176,7 +176,7 @@ struct tsch_neighbor;
 
 /* Minimum score right after a parent switch. */
 #ifndef MA_MSF_CONF_SWITCH_BOOST
-#define MA_MSF_CONF_SWITCH_BOOST 60
+#define MA_MSF_CONF_SWITCH_BOOST 30
 #endif
 
 /* Section 5.1 window (MAX_NUM_CELLS) at score 100. */
@@ -194,7 +194,7 @@ struct tsch_neighbor;
 
 /* Tx cells held with the parent while mobile: 1 + EXTRA_CELLS. */
 #ifndef MA_MSF_CONF_EXTRA_CELLS
-#define MA_MSF_CONF_EXTRA_CELLS 2
+#define MA_MSF_CONF_EXTRA_CELLS 1
 #endif
 
 /* While mobile, this many packets queued for the parent trigger an ADD. */
@@ -220,7 +220,7 @@ struct tsch_neighbor;
 #define MA_MSF_CONF_SWITCH_TIMEOUT (5 * 60 * CLOCK_SECOND)
 #endif
 #ifndef MA_MSF_CONF_MOBILE_SWITCH_TIMEOUT
-#define MA_MSF_CONF_MOBILE_SWITCH_TIMEOUT (30 * CLOCK_SECOND)
+#define MA_MSF_CONF_MOBILE_SWITCH_TIMEOUT (150 * CLOCK_SECOND)
 #endif
 
 /* Idle timeout for the cells of a child that announced it is moving. */
