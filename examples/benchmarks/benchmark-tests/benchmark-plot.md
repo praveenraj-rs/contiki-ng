@@ -1,6 +1,6 @@
-# Benchmark analysis and plotting (`run-analysis.py`)
+# Benchmark analysis and plotting (`run-analysis.py`, `benchmark.py`)
 
-This document explains how `run-analysis.py` turns the Cooja log (`COOJA.testlog`) into the printed summary and the `plots.pdf` report.
+This document explains how `run-analysis.py` turns the Cooja log (`COOJA.testlog`) into the printed summary, the `plots.pdf` report and a metrics CSV, and how `benchmark.py` combines these per-scheduler results into per-simulation and all-simulation comparisons (Section 9).
 
 ## 1. Pipeline overview
 
@@ -13,7 +13,10 @@ flowchart LR
     E --> F[NodeStats per node]
     F --> G[calc&#40;&#41; final metrics]
     G --> H[Terminal summary]
-    G --> I[plots.pdf, 6 pages]
+    G --> I[plots.pdf, 8 pages]
+    G --> J[metrics CSV]
+    J --> K[benchmark.py<br/>result.csv / result.pdf per simulation]
+    K --> L[result-summary.csv / .pdf<br/>all simulations]
 ```
 
 | Step | File | Role |
@@ -23,14 +26,16 @@ flowchart LR
 | 3 | [Makefile](Makefile) | TSCH + RPL Classic, plus `simple-energest` for energy logs. |
 | 4 | [run-cooja.py](run-cooja.py) | Runs Cooja headless on `cooja-sims/1-cooja.csc`, output goes to `COOJA.testlog`. |
 | 5 | [coojalogger.js](coojalogger.js) | Cooja script that prints every mote log line as `<time_us> <node_id> <message>`. |
-| 6 | [run-analysis.py](run-analysis.py) | Parses the log, computes metrics, prints a summary, writes `plots.pdf`. |
+| 6 | [run-analysis.py](run-analysis.py) | Parses the log, computes metrics, prints a summary, writes `plots.pdf` and the metrics CSV. |
+| 7 | [benchmark.py](benchmark.py) | Runs every simulation with every scheduler, calls steps 4 and 6, and merges the results (Section 9). |
 
 Usage:
 
 ```bash
 python3 run-cooja.py                 # produces COOJA.testlog
-python3 run-analysis.py              # reads COOJA.testlog, writes plots.pdf
+python3 run-analysis.py              # reads COOJA.testlog, writes plots.pdf and the metrics CSV
 python3 run-analysis.py other.log    # analyze another log
+python3 benchmark.py                 # all simulations x all schedulers, see Section 9
 ```
 
 ## 2. Simulation and application parameters
@@ -179,29 +184,42 @@ Link-layer PAR=64.62 (0 packets queue dropped) End-to-end PDR=99.96
 
 These are **weighted** totals (nodes with more traffic count more). The average line drawn on each plot is the **unweighted** mean of the per-node bars, so the two values can differ slightly (for example PAR 64.62 in the terminal against 63.64 on the plot).
 
-## 7. Plotting (`plot()` and `plots.pdf`)
+## 7. Plotting (`plot()` and `plots.pdf`) and the metrics CSV
 
-`main()` opens one `PdfPages('plots.pdf')` and calls `plot()` six times. Each call adds one page.
+`main()` opens one `PdfPages` file (`plots.pdf`, or the path given with `--pdf`), writes a summary table on the first page and then calls `plot()` seven times. Each call adds one page.
 
-| Page | Metric key | Y label |
-|------|-----------|---------|
-| 1 | `pdr` | Packet Delivery Ratio, % |
-| 2 | `par` | Packet Acknowledgement Ratio, % |
-| 3 | `rpl_switches` | RPL parent switches |
-| 4 | `duty_cycle` | Radio Duty Cycle, % |
-| 5 | `duty_cycle_joined` | Joined Radio Duty Cycle, % |
-| 6 | `charge` | Charge consumption, mC |
+| Page | Content | Y label |
+|------|---------|---------|
+| 1 | Summary table: avg / min / max / std over the nodes of every metric, plus the weighted PAR, PDR and queue drops of Section 6. `--heading` (for example `1-cooja / ma-msf`) is printed above it. | — |
+| 2 | `pdr` | Packet Delivery Ratio, % |
+| 3 | `par` | Packet Acknowledgement Ratio, % |
+| 4 | `queue_drops` | Packets dropped from queue |
+| 5 | `rpl_switches` | RPL parent switches |
+| 6 | `duty_cycle` | Radio Duty Cycle, % |
+| 7 | `duty_cycle_joined` | Joined Radio Duty Cycle, % |
+| 8 | `charge` | Charge consumption, mC |
 
-For each page:
+For each metric page:
 
-1. `results` is a list of dicts, one per node: `{id, pdr, par, rpl_switches, duty_cycle, duty_cycle_joined, charge}`. The page's data is `[r[metric] for r in results]`.
+1. `results` is a list of dicts, one per node: `{id, pdr, par, queue_drops, rpl_switches, duty_cycle, duty_cycle_joined, charge}`. The page's data is `[r[metric] for r in results]`.
 2. One orange bar per node, with the node ID on the x axis.
 3. The value is printed above each bar (`bar_label`, one decimal).
-4. `avg = sum(data) / len(data)` is drawn as a red dashed line, shown in the legend and under the x label as `Average: ...`.
+4. `avg = sum(data) / len(data)` is drawn as a red dashed line and shown in the legend as `Average = ...`.
 5. The y axis:
    - PDR: from `min(80, lowest value)` to 108, so differences near 100% stay visible and labels fit above.
    - Others: from 0 to 1.2 x the largest value, leaving room for the labels.
 6. The figure width scales with the number of nodes (`0.45 in` per node, at least 6 in).
+
+The same statistics as on page 1 are written to the metrics CSV (`metrics.csv`, or the path given with `--csv`), one row per metric:
+
+```
+metric,avg,min,max,std
+pdr,99.9637,99.8536,100.0000,0.0629
+par,79.7891,73.9244,86.2144,4.4741
+...
+```
+
+The metric names are `pdr`, `par`, `queue_drops`, `rpl_parent_switches`, `radio_duty_cycle`, `joined_radio_duty_cycle` and `charge_consumption`. `benchmark.py` builds its comparisons from these files (Section 9).
 
 ## 8. Known caveats in the current parser
 
@@ -213,3 +231,79 @@ These were checked against the lines in `COOJA.testlog` and affect only the **ch
 4. **Address-to-ID mapping.** `addr_to_id()` assumes the last IPv6 group equals the node ID in hex.
 
 Fixing 1 and 2 would raise the reported charge values, since the CPU-on term (2.928 mA) is currently under-counted.
+
+Because of 1 and 2, every node's charge contains a scheduler-independent offset of about 1040 mC (2.938 mA x about 354 s over a 3600 s run). Differences in charge between schedulers are still correct in mC, but percentages and the PDR per charge ratio of Section 9.3 are diluted by this offset. `radio_duty_cycle` is not affected and is the more reliable energy comparison until the parser is fixed.
+
+## 9. Comparing schedulers and simulations (`benchmark.py`)
+
+[benchmark.py](benchmark.py) runs every selected simulation (`cooja-sims/*.csc`) with every selected scheduler (`schedulers/*/`), analyzes each log with `run-analysis.py`, and merges the results.
+
+```bash
+python3 benchmark.py                                  # all simulations x all schedulers
+python3 benchmark.py --sims 1-cooja --schedulers msf  # one simulation, one scheduler
+python3 benchmark.py --analysis-only                  # skip Cooja, re-analyze existing testlogs
+python3 benchmark.py --simulate-only                  # run Cooja, skip the analysis
+python3 benchmark.py --summary-only                   # only rebuild result-summary.csv/pdf
+python3 benchmark.py --list                           # show simulations and schedulers
+```
+
+The plotting steps need matplotlib (for example the project virtual environment, `../../../.venv/bin/python benchmark.py ...`).
+
+### 9.1 Output layout
+
+```
+logs/
+├── result-summary.csv            all simulations, one row per simulation and scheduler (9.3)
+├── result-summary.pdf            all simulations, table + one chart per metric (9.3)
+└── <sim>/                        for example 1-cooja
+    ├── testlogs/<scheduler>.testlog
+    ├── plots/<scheduler>.pdf     plots.pdf of run-analysis.py (Section 7)
+    ├── metrics/<scheduler>.csv   metrics CSV of run-analysis.py (Section 7)
+    ├── result.csv                one simulation, one row per scheduler (9.2)
+    └── result.pdf                one simulation, table + one chart per metric (9.2)
+```
+
+### 9.2 Per-simulation comparison (`result.csv`, `result.pdf`)
+
+After all schedulers of a simulation have been analyzed, `update_results()` reads every `metrics/<scheduler>.csv` of that simulation:
+
+- **`result.csv`**: one row per scheduler and the columns `<metric>_<stat>` for every metric of Section 7 and every statistic `avg`, `min`, `max`, `std` (for example `pdr_avg`, `charge_consumption_std`).
+- **`result.pdf`**: page 1 is a table of the averages; then one page per metric with one bar per scheduler (bar = average over the nodes, whisker = std, blue triangle = lowest node, red triangle = highest node).
+
+### 9.3 Combined comparison over all simulations (`result-summary.csv`, `result-summary.pdf`)
+
+At the end of every run that includes the analysis, and with `--summary-only`, `update_summary()` reads every `logs/<sim>/result.csv` that exists, not only the simulations of the current run. The metrics included are listed in `SUMMARY_METRICS` in `benchmark.py`:
+
+| Metric | Unit | Better |
+|--------|------|--------|
+| `pdr` | % | higher |
+| `queue_drops` | packets per node | lower |
+| `rpl_parent_switches` | switches per node | lower |
+| `radio_duty_cycle` | % | lower |
+| `charge_consumption` | mC per node | lower |
+| `pdr_per_mc` (derived) | % per mC | higher |
+
+`pdr_per_mc` is the delivery obtained per unit of charge:
+
+```
+pdr_per_mc = pdr_avg / charge_consumption_avg
+```
+
+It is computed from the averages over the nodes of each simulation and scheduler, so it rewards a scheduler that delivers the same PDR with less charge. See the caveat at the end of Section 8 before comparing its values.
+
+- **`result-summary.csv`**: one row per simulation and scheduler with the columns `sim`, `scheduler`, `<metric>_avg` and `<metric>_std` for the five metrics above, and `pdr_per_mc`.
+- **`result-summary.pdf`**, seven pages:
+
+| Page | Content |
+|------|---------|
+| 1 | Table: one row per simulation and scheduler, the average of every metric and `pdr_per_mc` |
+| 2 | Packet Delivery Ratio |
+| 3 | Packets dropped from queue |
+| 4 | RPL parent switches |
+| 5 | Radio duty cycle |
+| 6 | Charge consumption |
+| 7 | PDR per charge |
+
+On pages 2 to 7 the x axis is the simulation and there is one bar per scheduler, so all schedulers and simulations are compared in one chart. The bar is the average over the nodes and the whisker the std over the nodes (no whisker for `pdr_per_mc`). The title of each chart states whether higher or lower is better. The PDR axis starts at least 10 points below the lowest whisker, rounded down to a multiple of 10 and never above 70, so differences near 100% stay visible; the other axes start at 0.
+
+To add another metric of `result.csv` to the summary, add it to `SUMMARY_METRICS` (and a short column label to `SUMMARY_TABLE_LABELS`).

@@ -5,12 +5,16 @@
   python3 benchmark.py --sims 1-cooja --schedulers msf  one simulation, one scheduler
   python3 benchmark.py --analysis-only                  skip Cooja, re-analyze existing logs
   python3 benchmark.py --simulate-only                  skip the analysis
+  python3 benchmark.py --summary-only                   only rebuild the combined summary
   python3 benchmark.py --list                           show available simulations and schedulers
 
 Simulations are the cooja-sims/*.csc files, schedulers are the folders in schedulers/
 (each with scheduler.mk and scheduler-conf.h). Results go to logs/<sim>/:
   testlogs/<scheduler>.testlog, plots/<scheduler>.pdf, metrics/<scheduler>.csv,
   result.csv (one row per scheduler, built from metrics/), result.pdf (same data as charts).
+After the analysis, every logs/<sim>/result.csv is combined into logs/result-summary.csv and
+logs/result-summary.pdf: PDR, queue drops, RPL parent switches, radio duty cycle, charge and
+PDR per charge (% per mC) of all schedulers in all simulations.
 """
 
 import argparse
@@ -197,6 +201,164 @@ def update_results(sim_dir):
         write_result_pdf(sim_dir, data, metrics)
 
 #######################################################
+# Combined analysis over all simulations: logs/result-summary.csv and logs/result-summary.pdf
+
+# (metric of result.csv, label format, "higher" or "lower" is better), in the order of the PDF pages
+SUMMARY_METRICS = (
+    ("pdr", "{:.2f}", "higher"),
+    ("queue_drops", "{:.1f}", "lower"),
+    ("rpl_parent_switches", "{:.1f}", "lower"),
+    ("radio_duty_cycle", "{:.2f}", "lower"),
+    ("charge_consumption", "{:.0f}", "lower"),
+)
+SUMMARY_STATS = ("avg", "std")
+SUMMARY_TABLE_LABELS = {
+    "pdr": "PDR\n%",
+    "queue_drops": "Queue drops\nper node",
+    "rpl_parent_switches": "RPL parent\nswitches\nper node",
+    "radio_duty_cycle": "Radio duty\ncycle\n%",
+    "charge_consumption": "Charge\nper node\nmC",
+}
+
+# {sim: {scheduler: {"<metric>_<stat>": float}}} from every logs/<sim>/result.csv, plus the schedulers
+def load_results(logs_dir):
+    nan = float("nan")
+    columns = ["{}_{}".format(m, stat) for m, _, _ in SUMMARY_METRICS for stat in SUMMARY_STATS]
+    results = {}
+    schedulers = []
+    for path in sorted(glob.glob(os.path.join(logs_dir, "*", "result.csv"))):
+        sim = os.path.basename(os.path.dirname(path))
+        rows = {}
+        with open(path, "r", newline="") as f:
+            for row in csv.DictReader(f):
+                rows[row["scheduler"]] = {c: float(row[c]) if row.get(c) else nan for c in columns}
+                if row["scheduler"] not in schedulers:
+                    schedulers.append(row["scheduler"])
+        if rows:
+            results[sim] = rows
+    return results, sorted(schedulers)
+
+# PDR per unit of charge: average PDR (%) / average charge per node (mC)
+def pdr_per_mc(values):
+    charge = values["charge_consumption_avg"]
+    return values["pdr_avg"] / charge if charge > 0 else float("nan")
+
+def write_summary_csv(logs_dir, results, schedulers):
+    columns = ["{}_{}".format(m, stat) for m, _, _ in SUMMARY_METRICS for stat in SUMMARY_STATS]
+    with open(os.path.join(logs_dir, "result-summary.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["sim", "scheduler"] + columns + ["pdr_per_mc"])
+        for sim, rows in results.items():
+            for scheduler in schedulers:
+                if scheduler in rows:
+                    v = rows[scheduler]
+                    w.writerow([sim, scheduler] + ["{:.4f}".format(v[c]) for c in columns]
+                               + ["{:.6f}".format(pdr_per_mc(v))])
+
+# Page 1: table of the averages; then one chart per metric and one for PDR per mC.
+# In the charts x = simulation, one bar per scheduler, whisker = std over the nodes.
+def write_summary_pdf(logs_dir, results, schedulers):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as pl
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    sims = list(results)
+    nan = float("nan")
+    colors = pl.get_cmap("tab10")
+
+    def value(sim, scheduler, fn):
+        return fn(results[sim][scheduler]) if scheduler in results[sim] else nan
+
+    def column(name):
+        return lambda v: v[name]
+
+    def grouped_bars(title, ylabel, values, errors=None, fmt="{:.2f}", bottom=0.0):
+        fig, ax = pl.subplots(figsize=(max(7, 0.35 * len(sims) * len(schedulers) + 3), 4.8))
+        width = 0.8 / len(schedulers)
+        tops = []
+        for j, scheduler in enumerate(schedulers):
+            xs = [i + (j - (len(schedulers) - 1) / 2) * width for i in range(len(sims))]
+            ys = [values(sim, scheduler) for sim in sims]
+            yerr = [errors(sim, scheduler) for sim in sims] if errors else None
+            ax.bar(xs, ys, width=width, color=colors(j % 10), edgecolor="black", linewidth=0.5,
+                   label=scheduler, yerr=yerr, capsize=2, error_kw={"elinewidth": 0.8})
+            for k, (x, y) in enumerate(zip(xs, ys)):
+                if y == y:
+                    top = y + (yerr[k] if yerr and yerr[k] == yerr[k] else 0)
+                    tops.append(top)
+                    ax.text(x, top, " " + fmt.format(y), ha="center", va="bottom", fontsize=6.5, rotation=90)
+        top = max(tops or [1])
+        if top <= bottom:
+            top = bottom + 1
+        ax.set_ylim(bottom, top + 0.18 * (top - bottom))
+        ax.set_xticks(range(len(sims)))
+        ax.set_xticklabels(sims)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(axis="y", linestyle=":", alpha=0.5)
+        ax.set_axisbelow(True)
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=len(schedulers), fontsize=8)
+        return fig
+
+    with PdfPages(os.path.join(logs_dir, "result-summary.pdf")) as pdf:
+        # Table: one row per simulation and scheduler, the average of every metric
+        labels = (["Simulation", "Scheduler"] + [SUMMARY_TABLE_LABELS.get(m, m) for m, _, _ in SUMMARY_METRICS]
+                  + ["PDR per charge\n% per mC"])
+        cells = []
+        for sim in sims:
+            for s in schedulers:
+                if s in results[sim]:
+                    cells.append([sim, s] + [fmt.format(value(sim, s, column(m + "_avg")))
+                                             for m, fmt, _ in SUMMARY_METRICS]
+                                 + ["{:.4f}".format(value(sim, s, pdr_per_mc))])
+        fig, ax = pl.subplots(figsize=(max(9, 1.4 * len(labels)), 0.32 * len(cells) + 2))
+        ax.axis("off")
+        table = ax.table(cellText=cells, colLabels=labels, loc="center", cellLoc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 1.5)
+        for j in range(len(labels)):
+            table[0, j].set_height(3 * table[0, j].get_height())
+        ax.set_title("All simulations: average over the nodes, per scheduler\n"
+                     "PDR per charge = average PDR (%) / average charge per node (mC), higher is better",
+                     fontsize=10)
+        pdf.savefig(fig, bbox_inches="tight")
+        pl.close(fig)
+
+        for metric, fmt, better in SUMMARY_METRICS:
+            avg, std = column(metric + "_avg"), column(metric + "_std")
+            bottom = 0.0
+            if metric == "pdr":
+                # start below the lowest whisker so that differences near 100% stay visible
+                lows = [value(sim, s, avg) - value(sim, s, std) for sim in sims for s in schedulers]
+                lows = [v for v in lows if v == v]
+                bottom = max(0, 10 * (min(lows + [80]) // 10) - 10)
+            title = "{}, all simulations ({} is better)\nbar = average, whisker = std over the nodes".format(
+                METRIC_TITLES.get(metric, metric).split(",")[0], better)
+            fig = grouped_bars(title, METRIC_TITLES.get(metric, metric),
+                               lambda sim, s: value(sim, s, avg), errors=lambda sim, s: value(sim, s, std),
+                               fmt=fmt, bottom=bottom)
+            pdf.savefig(fig, bbox_inches="tight")
+            pl.close(fig)
+
+        fig = grouped_bars("PDR per charge, all simulations (higher is better)\n"
+                           "average PDR / average charge per node",
+                           "PDR per charge, % per mC", lambda sim, s: value(sim, s, pdr_per_mc), fmt="{:.4f}")
+        pdf.savefig(fig, bbox_inches="tight")
+        pl.close(fig)
+
+def update_summary(logs_dir):
+    results, schedulers = load_results(logs_dir)
+    if not results:
+        print("No result.csv found under {}, no summary written".format(logs_dir))
+        return
+    write_summary_csv(logs_dir, results, schedulers)
+    write_summary_pdf(logs_dir, results, schedulers)
+    print("\nSummary of {} written to {} and result-summary.pdf".format(
+        ", ".join(results), os.path.join(logs_dir, "result-summary.csv")))
+
+#######################################################
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
@@ -207,6 +369,8 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--analysis-only", action="store_true", help="do not run Cooja, analyze existing testlogs")
     mode.add_argument("--simulate-only", action="store_true", help="run Cooja but skip the analysis")
+    mode.add_argument("--summary-only", action="store_true",
+                      help="only rebuild result-summary.csv/pdf from the existing logs/*/result.csv")
     parser.add_argument("--list", action="store_true", help="list simulations and schedulers, then exit")
     args = parser.parse_args()
 
@@ -215,6 +379,10 @@ def main():
     if args.list:
         print("simulations:", ", ".join(all_sims))
         print("schedulers: ", ", ".join(all_schedulers))
+        return 0
+
+    if args.summary_only:
+        update_summary(args.logs_dir)
         return 0
 
     sims = select(args.sims, all_sims, "simulation")
@@ -238,6 +406,9 @@ def main():
         if not args.simulate_only:
             update_results(os.path.join(args.logs_dir, sim))
             print("\nComparison written to {} and result.pdf".format(os.path.join(args.logs_dir, sim, "result.csv")))
+
+    if not args.simulate_only:
+        update_summary(args.logs_dir)
 
     print("\n===== summary =====")
     print("{} run(s), {} failed".format(len(sims) * len(schedulers), len(failures)))
