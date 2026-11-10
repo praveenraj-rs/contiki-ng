@@ -232,7 +232,7 @@ These were checked against the lines in `COOJA.testlog` and affect only the **ch
 
 Fixing 1 and 2 would raise the reported charge values, since the CPU-on term (2.928 mA) is currently under-counted.
 
-Because of 1 and 2, every node's charge contains a scheduler-independent offset of about 1040 mC (2.938 mA x about 354 s over a 3600 s run). Differences in charge between schedulers are still correct in mC, but percentages and the PDR per charge ratio of Section 9.3 are diluted by this offset. `radio_duty_cycle` is not affected and is the more reliable energy comparison until the parser is fixed.
+Because of 1 and 2, every node's charge contains a scheduler-independent offset of about 1040 mC (2.938 mA x about 354 s over a 3600 s run). Differences in charge between schedulers are still correct in mC, but percentages and the charge per unit PDR ratio of Section 9.3 are diluted by this offset. `radio_duty_cycle` is not affected and is the more reliable energy comparison until the parser is fixed.
 
 ## 9. Comparing schedulers and simulations (`benchmark.py`)
 
@@ -281,29 +281,29 @@ At the end of every run that includes the analysis, and with `--summary-only`, `
 | `rpl_parent_switches` | switches per node | lower |
 | `radio_duty_cycle` | % | lower |
 | `charge_consumption` | mC per node | lower |
-| `pdr_per_mc` (derived) | % per mC | higher |
+| `charge_per_pdr` (derived) | mC per % | lower |
 
-`pdr_per_mc` is the delivery obtained per unit of charge:
+`charge_per_pdr` is the charge spent per unit of delivery (per percent of PDR):
 
 ```
-pdr_per_mc = pdr_avg / charge_consumption_avg
+charge_per_pdr = charge_consumption_avg / pdr_avg
 ```
 
-It is computed from the averages over the nodes of each simulation and scheduler, so it rewards a scheduler that delivers the same PDR with less charge. See the caveat at the end of Section 8 before comparing its values.
+It is computed from the averages over the nodes of each simulation and scheduler, so it rewards a scheduler that delivers the same PDR with less charge (lower is better). See the caveat at the end of Section 8 before comparing its values.
 
-- **`result-summary.csv`**: one row per simulation and scheduler with the columns `sim`, `scheduler`, `<metric>_avg` and `<metric>_std` for the five metrics above, and `pdr_per_mc`.
+- **`result-summary.csv`**: one row per simulation and scheduler with the columns `sim`, `scheduler`, `<metric>_avg` and `<metric>_std` for the five metrics above, and `charge_per_pdr`.
 - **`result-summary.pdf`**, seven pages:
 
 | Page | Content |
 |------|---------|
-| 1 | Table: one row per simulation and scheduler, the average of every metric and `pdr_per_mc` |
+| 1 | Table: one row per simulation and scheduler, the average of every metric and `charge_per_pdr` |
 | 2 | Packet Delivery Ratio |
 | 3 | Packets dropped from queue |
 | 4 | RPL parent switches |
 | 5 | Radio duty cycle |
 | 6 | Charge consumption |
-| 7 | PDR per charge |
+| 7 | Charge per unit PDR |
 
-On pages 2 to 7 the x axis is the simulation and there is one bar per scheduler, so all schedulers and simulations are compared in one chart. The bar is the average over the nodes and the whisker the std over the nodes (no whisker for `pdr_per_mc`). The title of each chart states whether higher or lower is better. The PDR axis starts at least 10 points below the lowest whisker, rounded down to a multiple of 10 and never above 70, so differences near 100% stay visible; the other axes start at 0.
+On pages 2 to 7 the x axis is the simulation and there is one bar per scheduler, so all schedulers and simulations are compared in one chart. The bar is the average over the nodes and the whisker the std over the nodes (no whisker for `charge_per_pdr`). The title of each chart states whether higher or lower is better. The PDR axis starts at least 10 points below the lowest whisker, rounded down to a multiple of 10 and never above 70, so differences near 100% stay visible; the other axes start at 0.
 
 To add another metric of `result.csv` to the summary, add it to `SUMMARY_METRICS` (and a short column label to `SUMMARY_TABLE_LABELS`).

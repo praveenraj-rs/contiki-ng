@@ -14,7 +14,7 @@ Simulations are the cooja-sims/*.csc files, schedulers are the folders in schedu
   result.csv (one row per scheduler, built from metrics/), result.pdf (same data as charts).
 After the analysis, every logs/<sim>/result.csv is combined into logs/result-summary.csv and
 logs/result-summary.pdf: PDR, queue drops, RPL parent switches, radio duty cycle, charge and
-PDR per charge (% per mC) of all schedulers in all simulations.
+charge per unit PDR (mC per %) of all schedulers in all simulations.
 """
 
 import argparse
@@ -238,24 +238,24 @@ def load_results(logs_dir):
             results[sim] = rows
     return results, sorted(schedulers)
 
-# PDR per unit of charge: average PDR (%) / average charge per node (mC)
-def pdr_per_mc(values):
-    charge = values["charge_consumption_avg"]
-    return values["pdr_avg"] / charge if charge > 0 else float("nan")
+# Charge per unit of PDR: average charge per node (mC) / average PDR (%)
+def charge_per_pdr(values):
+    pdr = values["pdr_avg"]
+    return values["charge_consumption_avg"] / pdr if pdr > 0 else float("nan")
 
 def write_summary_csv(logs_dir, results, schedulers):
     columns = ["{}_{}".format(m, stat) for m, _, _ in SUMMARY_METRICS for stat in SUMMARY_STATS]
     with open(os.path.join(logs_dir, "result-summary.csv"), "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["sim", "scheduler"] + columns + ["pdr_per_mc"])
+        w.writerow(["sim", "scheduler"] + columns + ["charge_per_pdr"])
         for sim, rows in results.items():
             for scheduler in schedulers:
                 if scheduler in rows:
                     v = rows[scheduler]
                     w.writerow([sim, scheduler] + ["{:.4f}".format(v[c]) for c in columns]
-                               + ["{:.6f}".format(pdr_per_mc(v))])
+                               + ["{:.6f}".format(charge_per_pdr(v))])
 
-# Page 1: table of the averages; then one chart per metric and one for PDR per mC.
+# Page 1: table of the averages; then one chart per metric and one for charge per unit PDR.
 # In the charts x = simulation, one bar per scheduler, whisker = std over the nodes.
 def write_summary_pdf(logs_dir, results, schedulers):
     import matplotlib
@@ -304,14 +304,14 @@ def write_summary_pdf(logs_dir, results, schedulers):
     with PdfPages(os.path.join(logs_dir, "result-summary.pdf")) as pdf:
         # Table: one row per simulation and scheduler, the average of every metric
         labels = (["Simulation", "Scheduler"] + [SUMMARY_TABLE_LABELS.get(m, m) for m, _, _ in SUMMARY_METRICS]
-                  + ["PDR per charge\n% per mC"])
+                  + ["Charge per\nunit PDR\nmC per %"])
         cells = []
         for sim in sims:
             for s in schedulers:
                 if s in results[sim]:
                     cells.append([sim, s] + [fmt.format(value(sim, s, column(m + "_avg")))
                                              for m, fmt, _ in SUMMARY_METRICS]
-                                 + ["{:.4f}".format(value(sim, s, pdr_per_mc))])
+                                 + ["{:.4f}".format(value(sim, s, charge_per_pdr))])
         fig, ax = pl.subplots(figsize=(max(9, 1.4 * len(labels)), 0.32 * len(cells) + 2))
         ax.axis("off")
         table = ax.table(cellText=cells, colLabels=labels, loc="center", cellLoc="center")
@@ -321,7 +321,7 @@ def write_summary_pdf(logs_dir, results, schedulers):
         for j in range(len(labels)):
             table[0, j].set_height(3 * table[0, j].get_height())
         ax.set_title("All simulations: average over the nodes, per scheduler\n"
-                     "PDR per charge = average PDR (%) / average charge per node (mC), higher is better",
+                     "Charge per unit PDR = average charge per node (mC) / average PDR (%), lower is better",
                      fontsize=10)
         pdf.savefig(fig, bbox_inches="tight")
         pl.close(fig)
@@ -342,9 +342,9 @@ def write_summary_pdf(logs_dir, results, schedulers):
             pdf.savefig(fig, bbox_inches="tight")
             pl.close(fig)
 
-        fig = grouped_bars("PDR per charge, all simulations (higher is better)\n"
-                           "average PDR / average charge per node",
-                           "PDR per charge, % per mC", lambda sim, s: value(sim, s, pdr_per_mc), fmt="{:.4f}")
+        fig = grouped_bars("Charge per unit PDR, all simulations (lower is better)\n"
+                           "average charge per node / average PDR",
+                           "Charge per unit PDR, mC per %", lambda sim, s: value(sim, s, charge_per_pdr), fmt="{:.4f}")
         pdf.savefig(fig, bbox_inches="tight")
         pl.close(fig)
 
